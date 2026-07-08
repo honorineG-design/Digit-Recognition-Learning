@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ student.username }} - Admin{% endblock %}
+{% block content %}
+<div class="admin-container">
+    <div class="admin-header">
+        <h1>{{ student.username }}'s Records</h1>
+        <a href="{{ url_for('admin_panel') }}" class="btn btn-secondary">Back to All Students</a>
+    </div>
+
+    <div class="records-table-wrapper">
+        {% if records %}
+        <table class="records-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Target Digit</th>
+                    <th>Predicted</th>
+                    <th>Confidence</th>
+                    <th>Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    <td>{{ record.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ record.digit_label if record.digit_label is not none else 'Free Draw' }}</td>
+                    <td>{{ record.predicted_digit }}</td>
+                    <td>{{ "%.1f"|format(record.confidence * 100) }}%</td>
+                    <td>
+                        {% if record.digit_label is not none %}
+                            {% if record.digit_label == record.predicted_digit %}
+                                <span class="badge badge-correct">Correct</span>
+                            {% else %}
+                                <span class="badge badge-wrong">Wrong</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="badge badge-free">Free Draw</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No records for this student.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

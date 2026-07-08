@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}My Records - DigitLearn{% endblock %}
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h1>My Records</h1>
+        <p class="dashboard-subtitle">All your digit practice results</p>
+    </div>
+
+    {% set correct_count = namespace(value=0) %}
+    {% set total_count = namespace(value=0) %}
+    {% for r in records %}
+        {% set total_count.value = total_count.value + 1 %}
+        {% if r.correct %}
+            {% set correct_count.value = correct_count.value + 1 %}
+        {% endif %}
+    {% endfor %}
+
+    <div class="dashboard-stats">
+        <div class="stat-card">
+            <span class="stat-card-value">{{ total_count.value }}</span>
+            <span class="stat-card-label">Total Attempts</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-card-value">{{ correct_count.value }}</span>
+            <span class="stat-card-label">Correct</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-card-value">{{ "%.1f"|format((correct_count.value / total_count.value * 100) if total_count.value > 0 else 0) }}%</span>
+            <span class="stat-card-label">Accuracy</span>
+        </div>
+    </div>
+
+    <div class="digest-section">
+        <h2>Per-Digit Progress</h2>
+        <div class="progress-grid">
+            {% for d in range(10) %}
+                {% set d_records = records|selectattr('digit_label', 'equalto', d)|list %}
+                {% set d_total = d_records|length %}
+                {% set d_correct = d_records|selectattr('correct', 'equalto', true)|list|length %}
+                {% set d_accuracy = (d_correct / d_total * 100) if d_total > 0 else 0 %}
+                {% set ring_class = 'progress-good' if d_accuracy >= 80 else ('progress-ok' if d_accuracy >= 50 else 'progress-bad') %}
+                {% set fill_class = 'ring-good' if d_accuracy >= 80 else ('ring-ok' if d_accuracy >= 50 else 'ring-bad') %}
+                {% set offset = "%.1f"|format(125.6 - (d_accuracy / 100) * 125.6) %}
+                <div class="progress-cell {{ ring_class if d_total > 0 else 'progress-none' }}">
+                    <span class="progress-digit">{{ d }}</span>
+                    <div class="progress-ring">
+                        <svg width="48" height="48" viewBox="0 0 48 48">
+                            <circle cx="24" cy="24" r="20" class="ring-bg"/>
+                            <circle cx="24" cy="24" r="20" class="ring-fill {{ fill_class }}"
+                                stroke-dasharray="125.6" stroke-dashoffset="{{ offset if d_total > 0 else '125.6' }}"/>
+                        </svg>
+                    </div>
+                    <span class="progress-pct">{{ "%.0f"|format(d_accuracy) if d_total > 0 else '--' }}%</span>
+                    <span class="progress-count">{{ d_correct }}/{{ d_total }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="records-table-wrapper">
+        {% if records %}
+        <h2>Recent Attempts</h2>
+        <table class="records-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Target</th>
+                    <th>You Wrote</th>
+                    <th>Confidence</th>
+                    <th>Result</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    <td>{{ record.created_at.strftime('%m/%d %H:%M') }}</td>
+                    <td><strong>{{ record.digit_label }}</strong></td>
+                    <td>{{ record.predicted_digit }}</td>
+                    <td>{{ "%.0f"|format(record.confidence * 100) }}%</td>
+                    <td>
+                        {% if record.correct %}
+                            <span class="badge badge-correct">Correct</span>
+                        {% else %}
+                            <span class="badge badge-wrong">Wrong</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <form method="POST" action="{{ url_for('delete_record', record_id=record.id) }}" style="display:inline">
+                            <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Delete this record?')">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No records yet. Start practicing digits!</p>
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Go Practice</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

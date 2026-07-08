@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+instance/
+app_output.txt
+app_error.txt
+data/
+*.h5

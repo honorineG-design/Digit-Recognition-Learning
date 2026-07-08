@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Train Model - DigitLearn{% endblock %}
+{% block content %}
+<div class="train-container">
+    <div class="train-header">
+        <h1>Train the Model</h1>
+        <p class="train-subtitle">Draw digits and label them to improve recognition accuracy</p>
+    </div>
+
+    <div class="train-layout">
+        <div class="train-draw-section">
+            <div class="canvas-wrapper">
+                <canvas id="trainCanvas" width="280" height="280"></canvas>
+            </div>
+            <div class="canvas-controls">
+                <button id="trainClearBtn" class="btn btn-secondary">Clear</button>
+            </div>
+        </div>
+
+        <div class="train-label-section">
+            <p class="label-prompt">What digit did you draw?</p>
+            <div class="digit-picker" id="digitPicker">
+                {% for i in range(10) %}
+                <button class="digit-btn" data-digit="{{ i }}">{{ i }}</button>
+                {% endfor %}
+            </div>
+            <button id="saveSampleBtn" class="btn btn-primary" disabled>Save as Training Sample</button>
+            <div class="save-status" id="saveStatus"></div>
+        </div>
+    </div>
+
+    <div class="train-stats-section">
+        <h2>Training Samples Collected</h2>
+        <div class="sample-grid" id="sampleGrid">
+            {% for i in range(10) %}
+            <div class="sample-cell" data-digit="{{ i }}">
+                <span class="sample-digit">{{ i }}</span>
+                <span class="sample-count" id="scount-{{ i }}">0</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="retrain-section">
+        <h2>Retrain Model</h2>
+        <p class="retrain-info">The model will be retrained on MNIST data plus all your collected samples.</p>
+        <button id="retrainBtn" class="btn btn-primary btn-retrain">Train Model</button>
+        <div class="retrain-status" id="retrainStatus"></div>
+        <div class="retrain-result" id="retrainResult" style="display:none"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var canvas = document.getElementById('trainCanvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var clearBtn = document.getElementById('trainClearBtn');
+    var saveBtn = document.getElementById('saveSampleBtn');
+    var saveStatus = document.getElementById('saveStatus');
+    var retrainBtn = document.getElementById('retrainBtn');
+    var retrainStatus = document.getElementById('retrainStatus');
+    var retrainResult = document.getElementById('retrainResult');
+
+    var drawing = false;
+    var hasDrawn = false;
+    var selectedDigit = -1;
+    var isSaving = false;
+    var isRetraining = false;
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 20;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    function getPos(e) {
+        var rect = canvas.getBoundingClientRect();
+        var scaleX = canvas.width / rect.width;
+        var scaleY = canvas.height / rect.height;
+        var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    }
+
+    function startDraw(e) {
+        e.preventDefault();
+        drawing = true;
+        hasDrawn = true;
+        var pos = getPos(e);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        updateSaveBtn();
+    }
+
+    function onDraw(e) {
+        e.preventDefault();
+        if (!drawing) return;
+        var pos = getPos(e);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+    }
+
+    function stopDraw(e) {
+        e.preventDefault();
+        drawing = false;
+        ctx.beginPath();
+    }
+
+    canvas.addEventListener('mousedown', startDraw);
+    canvas.addEventListener('mousemove', onDraw);
+    canvas.addEventListener('mouseup', stopDraw);
+    canvas.addEventListener('mouseleave', stopDraw);
+    canvas.addEventListener('touchstart', startDraw, { passive: false });
+    canvas.addEventListener('touchmove', onDraw, { passive: false });
+    canvas.addEventListener('touchend', stopDraw);
+
+    function clearTrainingCanvas() {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        hasDrawn = false;
+        updateSaveBtn();
+    }
+
+    clearBtn.addEventListener('click', clearTrainingCanvas);
+    clearTrainingCanvas();
+
+    document.querySelectorAll('.digit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.digit-btn').forEach(function(b) { b.classList.remove('selected'); });
+            btn.classList.add('selected');
+            selectedDigit = parseInt(btn.dataset.digit);
+            updateSaveBtn();
+        });
+    });
+
+    function updateSaveBtn() {
+        saveBtn.disabled = !(hasDrawn && selectedDigit >= 0);
+    }
+
+    function loadSampleCounts() {
+        fetch('/admin/train/stats')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                for (var d = 0; d < 10; d++) {
+                    var el = document.getElementById('scount-' + d);
+                    if (el) el.textContent = data[String(d)] || 0;
+                }
+            });
+    }
+
+    saveBtn.addEventListener('click', function() {
+        if (isSaving || saveBtn.disabled) return;
+        isSaving = true;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        saveStatus.textContent = '';
+        saveStatus.className = 'save-status';
+
+        var imageData = canvas.toDataURL('image/png');
+
+        fetch('/admin/train/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageData, digit: selectedDigit })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.saved) {
+                saveStatus.textContent = 'Sample saved successfully!';
+                saveStatus.className = 'save-status save-ok';
+                clearTrainingCanvas();
+                document.querySelectorAll('.digit-btn').forEach(function(b) { b.classList.remove('selected'); });
+                selectedDigit = -1;
+                loadSampleCounts();
+            } else {
+                saveStatus.textContent = 'Error saving sample';
+                saveStatus.className = 'save-status save-error';
+            }
+        })
+        .catch(function(err) {
+            saveStatus.textContent = 'Error: ' + err;
+            saveStatus.className = 'save-status save-error';
+        })
+        .finally(function() {
+            isSaving = false;
+            saveBtn.textContent = 'Save as Training Sample';
+        });
+    });
+
+    retrainBtn.addEventListener('click', function() {
+        if (isRetraining) return;
+        isRetraining = true;
+        retrainBtn.disabled = true;
+        retrainBtn.textContent = 'Training...';
+        retrainStatus.textContent = 'Retraining model. This may take a minute...';
+        retrainStatus.className = 'retrain-status retrain-active';
+        retrainResult.style.display = 'none';
+
+        fetch('/admin/train/retrain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            retrainStatus.className = 'retrain-status';
+            retrainResult.style.display = 'block';
+            if (data.success) {
+                retrainResult.innerHTML = '<div class="retrain-success">Model retrained successfully!<br>Accuracy on test set: <strong>' + data.accuracy + '%</strong><br>Custom samples used: ' + data.custom_samples + '</div>';
+            } else {
+                retrainResult.innerHTML = '<div class="retrain-error">Error: ' + (data.error || 'Unknown error') + '</div>';
+            }
+        })
+        .catch(function(err) {
+            retrainStatus.className = 'retrain-status';
+            retrainResult.style.display = 'block';
+            retrainResult.innerHTML = '<div class="retrain-error">Error: ' + err + '</div>';
+        })
+        .finally(function() {
+            isRetraining = false;
+            retrainBtn.disabled = false;
+            retrainBtn.textContent = 'Train Model';
+            retrainStatus.textContent = '';
+        });
+    });
+
+    loadSampleCounts();
+})();
+</script>
+{% endblock %}
