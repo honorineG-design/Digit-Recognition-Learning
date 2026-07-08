@@ -2,16 +2,10 @@ import os
 import io
 import base64
 import random
-import glob
 import numpy as np
 from datetime import datetime
 from PIL import Image
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from torchvision import datasets, transforms
+import onnxruntime as ort
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -68,39 +62,11 @@ with app.app_context():
         db.session.add(admin)
         db.session.commit()
 
-class DigitCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.dropout1 = nn.Dropout(0.25)
-        self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(9216, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout2(x)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = None
+session = None
 try:
-    m = DigitCNN().to(device)
-    m.load_state_dict(torch.load('digit_model.pth', map_location=device, weights_only=True))
-    m.eval()
-    model = m
+    session = ort.InferenceSession('digit_model.onnx')
 except Exception as e:
-    print(f'MODEL LOAD ERROR: {e}')
+    print(f'ONNX LOAD ERROR: {e}')
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -236,6 +202,37 @@ def admin_train_retrain():
     if not current_user.is_admin:
         return jsonify({'error': 'unauthorized'}), 403
     try:
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+        import torch.optim as optim
+        from torch.utils.data import Dataset, DataLoader
+        from torchvision import datasets, transforms
+
+        class DigitCNN(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv1 = nn.Conv2d(1, 32, 3, 1)
+                self.conv2 = nn.Conv2d(32, 64, 3, 1)
+                self.dropout1 = nn.Dropout(0.25)
+                self.dropout2 = nn.Dropout(0.5)
+                self.fc1 = nn.Linear(9216, 128)
+                self.fc2 = nn.Linear(128, 10)
+
+            def forward(self, x):
+                x = self.conv1(x)
+                x = F.relu(x)
+                x = self.conv2(x)
+                x = F.relu(x)
+                x = F.max_pool2d(x, 2)
+                x = self.dropout1(x)
+                x = torch.flatten(x, 1)
+                x = self.fc1(x)
+                x = F.relu(x)
+                x = self.dropout2(x)
+                x = self.fc2(x)
+                return F.log_softmax(x, dim=1)
+
         class TrainingDataset(Dataset):
             def __init__(self, data_dir, transform):
                 self.samples = []
@@ -313,9 +310,12 @@ def admin_train_retrain():
         acc = 100.0 * correct / total
         torch.save(m.state_dict(), 'digit_model.pth')
 
-        global model
-        model = m
-        model.eval()
+        dummy = torch.randn(1, 1, 28, 28)
+        torch.onnx.export(m, dummy, 'digit_model.onnx',
+            input_names=['input'], output_names=['output'], opset_version=18)
+
+        global session
+        session = ort.InferenceSession('digit_model.onnx')
 
         return jsonify({
             'success': True,
@@ -323,6 +323,8 @@ def admin_train_retrain():
             'mnist_samples': 5000,
             'custom_samples': len(custom_set)
         })
+    except ImportError:
+        return jsonify({'success': False, 'error': 'PyTorch is not installed. Retrain locally and push the updated model.'}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -390,22 +392,23 @@ def predict():
         target_digit = data.get('targetDigit')
         if target_digit is None:
             return jsonify({'error': 'No target digit', 'correct': False, 'message': 'No target digit specified'}), 200
-        if model is None:
+        if session is None:
             return jsonify({'error': 'Model not loaded', 'prediction': '?', 'correct': False, 'confidence': 0, 'message': 'Model is not available. Admin needs to check the server logs.'}), 200
         image_data = base64.b64decode(data['image'].split(',')[1])
         img = Image.open(io.BytesIO(image_data)).convert('L')
         img = img.resize((28, 28), Image.LANCZOS)
         img_array = np.array(img, dtype=np.float32)
         img_array = img_array / 255.0
-        img_tensor = torch.FloatTensor(img_array).unsqueeze(0).unsqueeze(0)
-        img_tensor = (img_tensor - 0.1307) / 0.3081
-        with torch.no_grad():
-            img_tensor = img_tensor.to(device)
-            output = model(img_tensor)
-            probs = F.softmax(output, dim=1)
-            confidence, predicted = torch.max(probs, 1)
-        pred_digit = int(predicted.item())
-        conf = float(confidence.item())
+        img_array = (img_array - 0.1307) / 0.3081
+        img_array = img_array.reshape(1, 1, 28, 28)
+        input_name = session.get_inputs()[0].name
+        output_name = session.get_outputs()[0].name
+        result = session.run([output_name], {input_name: img_array})
+        log_probs = result[0]
+        probs = np.exp(log_probs - np.max(log_probs, axis=1, keepdims=True))
+        probs /= np.sum(probs, axis=1, keepdims=True)
+        pred_digit = int(np.argmax(probs, axis=1)[0])
+        conf = float(np.max(probs, axis=1)[0])
         correct = (pred_digit == target_digit)
         record = Record(
             user_id=current_user.id,
