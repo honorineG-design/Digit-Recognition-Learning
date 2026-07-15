@@ -3,24 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Digit Recognition{% endblock %}</title>
+    <title>{% block title %}DigiLearn{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-brand">
-            <a href="{{ url_for('index') }}">DigitLearn</a>
+            <a href="{{ url_for('home') }}">DigiLearn</a>
         </div>
         <div class="nav-links">
             {% if current_user.is_authenticated %}
-                <a href="{{ url_for('index') }}">Practice</a>
+                <a href="{{ url_for('home') }}">Home</a>
+                <a href="{{ url_for('practice') }}">Practice</a>
                 <a href="{{ url_for('dashboard') }}">My Records</a>
                 {% if current_user.is_admin %}
                     <a href="{{ url_for('admin_panel') }}">Admin</a>
-                    <a href="{{ url_for('admin_train') }}">Train Model</a>
+                    <a href="{{ url_for('admin_corrections') }}">Corrections</a>
+                    <a href="{{ url_for('admin_train') }}">Train</a>
                 {% endif %}
                 <a href="{{ url_for('logout') }}">Logout</a>
                 <span class="nav-user">{{ current_user.username }}</span>
+            {% else %}
+                <a href="{{ url_for('login') }}">Sign In</a>
+                <a href="{{ url_for('signup') }}">Create Account</a>
             {% endif %}
         </div>
     </nav>
@@ -29,7 +34,7 @@
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="flash {{ category }}">{{ message }}</div>
+                    <div class="flash {{ category }}">{{ message|safe }}</div>
                 {% endfor %}
             {% endif %}
         {% endwith %}

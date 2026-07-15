@@ -86,10 +86,21 @@
                             <span class="badge badge-wrong">Wrong</span>
                         {% endif %}
                     </td>
-                    <td>
+                    <td style="display:flex;gap:0.25rem;align-items:center;flex-wrap:wrap">
                         <form method="POST" action="{{ url_for('delete_record', record_id=record.id) }}" style="display:inline">
-                            <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Delete this record?')">Delete</button>
+                            <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Delete this record?')">Del</button>
                         </form>
+                        {% if record.admin_reviewed %}
+                            <span class="badge badge-correct">Fixed ({{ record.admin_corrected_label }})</span>
+                        {% elif not record.correct %}
+                            {% if record.reported %}
+                                <span class="badge badge-admin">Reported</span>
+                            {% else %}
+                                <form method="POST" action="{{ url_for('report_record', record_id=record.id) }}" style="display:inline">
+                                    <button type="submit" class="btn btn-small btn-secondary">Report</button>
+                                </form>
+                            {% endif %}
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -98,7 +109,7 @@
         {% else %}
         <div class="empty-state">
             <p>No records yet. Start practicing digits!</p>
-            <a href="{{ url_for('index') }}" class="btn btn-primary">Go Practice</a>
+            <a href="{{ url_for('practice') }}" class="btn btn-primary">Go Practice</a>
         </div>
         {% endif %}
     </div>

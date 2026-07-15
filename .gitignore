@@ -5,3 +5,5 @@ app_output.txt
 app_error.txt
 data/
 *.h5
+*.db
+training_data/

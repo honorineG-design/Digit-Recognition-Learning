@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Corrections - Admin{% endblock %}
+{% block content %}
+<div class="admin-container">
+    <div class="admin-header">
+        <h1>Review & Correct Records</h1>
+        <a href="{{ url_for('admin_panel') }}" class="btn btn-secondary">Back to Admin</a>
+    </div>
+
+    <div class="digest-section">
+        <h2>Reported Records ({{ reported|length }})</h2>
+        <p class="admin-subtitle">Students reported these as incorrect assessments. Verify what they actually wrote and correct it.</p>
+    </div>
+
+    <div class="records-table-wrapper" style="margin-bottom:2rem">
+        {% if reported %}
+        <table class="records-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Student</th>
+                    <th>Target</th>
+                    <th>Model Said</th>
+                    <th>Confidence</th>
+                    <th>Correct?</th>
+                    <th>Admin Correction</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in reported %}
+                <tr>
+                    <td>{{ record.created_at.strftime('%m/%d %H:%M') }}</td>
+                    <td>{{ record.student.username }}</td>
+                    <td><strong>{{ record.digit_label }}</strong></td>
+                    <td>{{ record.predicted_digit }}</td>
+                    <td>{{ "%.0f"|format(record.confidence * 100) }}%</td>
+                    <td>
+                        {% if record.admin_reviewed %}
+                            <span class="badge badge-correct">Reviewed ({{ record.admin_corrected_label }})</span>
+                        {% elif record.correct %}
+                            <span class="badge badge-correct">Yes</span>
+                        {% else %}
+                            <span class="badge badge-wrong">No</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if not record.admin_reviewed %}
+                        <form method="POST" action="{{ url_for('admin_submit_correction', record_id=record.id) }}" style="display:flex;gap:0.25rem;align-items:center">
+                            <input type="hidden" name="next" value="{{ url_for('admin_corrections') }}">
+                            <input type="number" name="actual_digit" min="0" max="9" required placeholder="0-9" style="width:50px;padding:0.25rem;background:#000;border:1px solid #1a3a1a;border-radius:4px;color:#c9d1d9;text-align:center;font-family:Candara,sans-serif">
+                            <button type="submit" class="btn btn-small btn-primary">Fix</button>
+                        </form>
+                        {% else %}
+                        <span class="badge badge-admin">Done</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No reported records. Students can report incorrect assessments from their dashboard.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="digest-section">
+        <h2>Low Confidence Records ({{ low_confidence|length }})</h2>
+        <p class="admin-subtitle">Records where the model was unsure (confidence &lt; 60%). Review these to provide correct labels.</p>
+    </div>
+
+    <div class="records-table-wrapper">
+        {% if low_confidence %}
+        <table class="records-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Student</th>
+                    <th>Target</th>
+                    <th>Model Said</th>
+                    <th>Confidence</th>
+                    <th>Correct?</th>
+                    <th>Admin Correction</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in low_confidence %}
+                <tr>
+                    <td>{{ record.created_at.strftime('%m/%d %H:%M') }}</td>
+                    <td>{{ record.student.username }}</td>
+                    <td><strong>{{ record.digit_label }}</strong></td>
+                    <td>{{ record.predicted_digit }}</td>
+                    <td>{{ "%.0f"|format(record.confidence * 100) }}%</td>
+                    <td>
+                        {% if record.reported %}
+                            <span class="badge badge-admin">Reported</span>
+                        {% elif record.admin_reviewed %}
+                            <span class="badge badge-correct">Reviewed ({{ record.admin_corrected_label }})</span>
+                        {% elif record.correct %}
+                            <span class="badge badge-correct">Yes</span>
+                        {% else %}
+                            <span class="badge badge-wrong">No</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if not record.admin_reviewed %}
+                        <form method="POST" action="{{ url_for('admin_submit_correction', record_id=record.id) }}" style="display:flex;gap:0.25rem;align-items:center">
+                            <input type="hidden" name="next" value="{{ url_for('admin_corrections') }}">
+                            <input type="number" name="actual_digit" min="0" max="9" required placeholder="0-9" style="width:50px;padding:0.25rem;background:#000;border:1px solid #1a3a1a;border-radius:4px;color:#c9d1d9;text-align:center;font-family:Candara,sans-serif">
+                            <button type="submit" class="btn btn-small btn-primary">Fix</button>
+                        </form>
+                        {% else %}
+                        <span class="badge badge-admin">Done</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No low confidence records.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

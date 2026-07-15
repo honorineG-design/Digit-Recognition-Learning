@@ -1,64 +1,84 @@
 {% extends "base.html" %}
-{% block title %}Practice - DigitLearn{% endblock %}
+{% block title %}Home - DigiLearn{% endblock %}
 {% block content %}
-<div class="practice-container">
-    <div class="target-section">
-        <p class="target-instruction">Write this number</p>
-        <div class="target-digit" id="targetDigit">3</div>
-    </div>
-
-    <div class="practice-main">
-        <div class="canvas-section">
-            <div class="canvas-wrapper">
-                <canvas id="digitCanvas" width="280" height="280"></canvas>
-            </div>
-            <div class="canvas-controls">
-                <button id="clearBtn" class="btn btn-secondary">Clear</button>
-                <button id="checkBtn" class="btn btn-primary" disabled>Check My Writing</button>
+<div class="home-hero">
+    <div class="hero-content">
+        <div class="hero-text">
+            <h1>Learn to <span class="gradient-text">Write Digits</span> with AI</h1>
+            <p class="hero-subtitle">DigiLearn uses artificial intelligence to help you practice writing numbers 0-9. Draw, get instant feedback, and track your progress.</p>
+            <div class="hero-actions">
+                <a href="{{ url_for('practice') }}" class="btn btn-primary btn-hero">Start Practicing</a>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-secondary btn-hero">View My Progress</a>
             </div>
         </div>
-
-        <div class="feedback-section" id="feedbackSection">
-            <div class="feedback-placeholder" id="feedbackPlaceholder">
-                <div class="placeholder-icon">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#484f58" stroke-width="1.5">
-                        <path d="M15.5 9.5L9.5 15.5M9.5 9.5L15.5 15.5" stroke-linecap="round"/>
-                        <circle cx="12" cy="12" r="10"/>
-                    </svg>
-                </div>
-                <p>Draw the number shown above, then check your writing</p>
-            </div>
-            <div class="feedback-result" id="feedbackResult" style="display:none">
-                <div class="feedback-icon" id="feedbackIcon"></div>
-                <p class="feedback-message" id="feedbackMessage"></p>
-                <div class="feedback-detail">
-                    <span class="detail-label">You wrote:</span>
-                    <span class="detail-digit" id="writtenDigit">-</span>
-                    <span class="detail-confidence" id="writtenConfidence">-</span>
-                </div>
-                <button id="nextBtn" class="btn btn-primary">Next Number</button>
-                <button id="retryBtn" class="btn btn-secondary" style="display:none">Try Again</button>
+        <div class="hero-visual">
+            <div class="hero-canvas-demo">
+                <svg width="200" height="200" viewBox="0 0 200 200">
+                    <rect width="200" height="200" rx="20" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+                    <text x="100" y="140" text-anchor="middle" font-size="120" font-weight="800" fill="#58a6ff" font-family="system-ui">5</text>
+                    <circle cx="100" cy="100" r="85" fill="none" stroke="#238636" stroke-width="3" stroke-dasharray="534" stroke-dashoffset="267" opacity="0.3"/>
+                    <circle cx="170" cy="30" r="20" fill="#238636" opacity="0.8"/>
+                    <text x="170" y="36" text-anchor="middle" font-size="16" fill="#fff" font-weight="700">&#x2713;</text>
+                </svg>
             </div>
         </div>
     </div>
+</div>
 
-    <div class="progress-section">
-        <h2>Your Progress</h2>
-        <div class="progress-grid" id="progressGrid">
-            {% for i in range(10) %}
-            <div class="progress-cell" data-digit="{{ i }}">
-                <span class="progress-digit">{{ i }}</span>
-                <div class="progress-ring">
-                    <svg width="48" height="48" viewBox="0 0 48 48">
-                        <circle cx="24" cy="24" r="20" class="ring-bg"/>
-                        <circle cx="24" cy="24" r="20" class="ring-fill" id="ring-{{ i }}"
-                            stroke-dasharray="125.6" stroke-dashoffset="125.6"/>
-                    </svg>
-                </div>
-                <span class="progress-pct" id="pct-{{ i }}">--</span>
+<div class="features-section">
+    <h2 class="section-title">How It Works</h2>
+    <div class="features-grid">
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+                </svg>
             </div>
-            {% endfor %}
+            <h3>Practice at Your Pace</h3>
+            <p>The system picks numbers you struggle with most, so you improve faster.</p>
         </div>
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="1.5">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+            </div>
+            <h3>AI Recognition</h3>
+            <p>Our neural network reads your handwriting and gives instant feedback.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="1.5">
+                    <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+            </div>
+            <h3>Draw Naturally</h3>
+            <p>Use your mouse, touchpad, or touchscreen to draw digits just like on paper.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f85149" stroke-width="1.5">
+                    <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+                </svg>
+            </div>
+            <h3>Track Progress</h3>
+            <p>See your accuracy per digit and watch your improvement over time.</p>
+        </div>
+    </div>
+</div>
+
+<div class="stats-preview-section">
+    <h2 class="section-title">Your Progress at a Glance</h2>
+    <div class="stats-preview" id="statsPreview">
+        <div class="stats-loading">Load your stats by starting practice...</div>
+    </div>
+</div>
+
+<div class="cta-section">
+    <div class="cta-card">
+        <h2>Ready to start learning?</h2>
+        <p>Join other students improving their digit writing skills with AI-powered feedback.</p>
+        <a href="{{ url_for('practice') }}" class="btn btn-primary btn-hero">Begin Practice</a>
     </div>
 </div>
 {% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Practice - DigitLearn{% endblock %}
+{% block content %}
+<div class="practice-container">
+    <div class="target-section">
+        <p class="target-instruction">Write this number</p>
+        <div class="target-digit" id="targetDigit">3</div>
+    </div>
+
+    <div class="practice-main">
+        <div class="canvas-section">
+            <div class="canvas-wrapper">
+                <canvas id="digitCanvas" width="280" height="280"></canvas>
+            </div>
+            <div class="canvas-controls">
+                <button id="clearBtn" class="btn btn-secondary">Clear</button>
+                <button id="checkBtn" class="btn btn-primary" disabled>Check My Writing</button>
+            </div>
+        </div>
+
+        <div class="feedback-section" id="feedbackSection">
+            <div class="feedback-placeholder" id="feedbackPlaceholder">
+                <div class="placeholder-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#484f58" stroke-width="1.5">
+                        <path d="M15.5 9.5L9.5 15.5M9.5 9.5L15.5 15.5" stroke-linecap="round"/>
+                        <circle cx="12" cy="12" r="10"/>
+                    </svg>
+                </div>
+                <p>Draw the number shown above, then check your writing</p>
+            </div>
+            <div class="feedback-result" id="feedbackResult" style="display:none">
+                <div class="feedback-icon" id="feedbackIcon"></div>
+                <p class="feedback-message" id="feedbackMessage"></p>
+                <div class="feedback-detail">
+                    <span class="detail-label">You wrote:</span>
+                    <span class="detail-digit" id="writtenDigit">-</span>
+                    <span class="detail-confidence" id="writtenConfidence">-</span>
+                </div>
+                <button id="nextBtn" class="btn btn-primary">Next Number</button>
+                <button id="retryBtn" class="btn btn-secondary" style="display:none">Try Again</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="progress-section">
+        <h2>Your Progress</h2>
+        <div class="progress-grid" id="progressGrid">
+            {% for i in range(10) %}
+            <div class="progress-cell" data-digit="{{ i }}">
+                <span class="progress-digit">{{ i }}</span>
+                <div class="progress-ring">
+                    <svg width="48" height="48" viewBox="0 0 48 48">
+                        <circle cx="24" cy="24" r="20" class="ring-bg"/>
+                        <circle cx="24" cy="24" r="20" class="ring-fill" id="ring-{{ i }}"
+                            stroke-dasharray="125.6" stroke-dashoffset="125.6"/>
+                    </svg>
+                </div>
+                <span class="progress-pct" id="pct-{{ i }}">--</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

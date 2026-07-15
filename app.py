@@ -2,8 +2,9 @@ import os
 import io
 import base64
 import random
+import secrets
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from PIL import Image
 import onnxruntime as ort
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
@@ -12,24 +13,30 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from flask_bcrypt import Bcrypt
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 db_url = os.environ.get('DATABASE_URL', 'sqlite:///site.db')
 if db_url.startswith('postgres://'):
     db_url = db_url.replace('postgres://', 'postgresql://', 1)
 if 'postgresql' in db_url and 'sslmode' not in db_url:
     db_url += '?sslmode=require'
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
+
 TRAINING_DIR = 'training_data'
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
+    reset_token = db.Column(db.String(128), nullable=True)
+    reset_token_expires = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     records = db.relationship('Record', backref='student', lazy=True, cascade='all, delete-orphan')
 
@@ -41,21 +48,32 @@ class Record(db.Model):
     confidence = db.Column(db.Float, nullable=False)
     correct = db.Column(db.Boolean, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reported = db.Column(db.Boolean, default=False)
+    admin_corrected_label = db.Column(db.Integer, nullable=True)
+    admin_reviewed = db.Column(db.Boolean, default=False)
+    image_data = db.Column(db.Text, nullable=True)
 
 with app.app_context():
     db.create_all()
     try:
         from sqlalchemy import inspect
         inspector = inspect(db.engine)
-        columns = [c['name'] for c in inspector.get_columns('record')]
-        if 'correct' not in columns:
-            db.session.execute(db.text('ALTER TABLE record ADD COLUMN correct BOOLEAN NOT NULL DEFAULT FALSE'))
+        user_cols = [c['name'] for c in inspector.get_columns('user')]
+        if 'email' not in user_cols:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN email VARCHAR(120)'))
             db.session.commit()
-    except Exception as e:
-        print(f'MIGRATION CHECK: {e}')
+        rec_cols = [c['name'] for c in inspector.get_columns('record')]
+        for col in ['reported', 'admin_reviewed', 'admin_corrected_label', 'image_data']:
+            if col not in rec_cols:
+                typ = 'BOOLEAN DEFAULT FALSE' if col in ('reported','admin_reviewed') else ('INTEGER' if col == 'admin_corrected_label' else 'TEXT')
+                db.session.execute(db.text(f'ALTER TABLE record ADD COLUMN {col} {typ}'))
+                db.session.commit()
+    except:
+        pass
     if not User.query.filter_by(username='admin').first():
         admin = User(
             username='admin',
+            email='admin@digilearn.local',
             password_hash=bcrypt.generate_password_hash('admin123').decode('utf-8'),
             is_admin=True
         )
@@ -64,7 +82,8 @@ with app.app_context():
 
 session = None
 try:
-    session = ort.InferenceSession('digit_model.onnx')
+    if os.path.exists('digit_model.onnx'):
+        session = ort.InferenceSession('digit_model.onnx')
 except Exception as e:
     print(f'ONNX LOAD ERROR: {e}')
 
@@ -73,50 +92,110 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 @app.route('/')
-@login_required
-def index():
+def home():
+    if current_user.is_authenticated:
+        return render_template('index.html')
     return render_template('index.html')
+
+@app.route('/practice')
+@login_required
+def practice():
+    return render_template('practice.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
+        user = User.query.filter((User.username == username) | (User.email == username)).first()
         if user and bcrypt.check_password_hash(user.password_hash, password):
             login_user(user)
-            return redirect(url_for('index'))
-        flash('Invalid username or password', 'error')
+            return redirect(url_for('home'))
+        flash('Invalid username/email or password', 'error')
     return render_template('login.html')
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
     if request.method == 'POST':
         username = request.form.get('username')
+        email = request.form.get('email')
         password = request.form.get('password')
+        confirm = request.form.get('confirm_password')
+
         if User.query.filter_by(username=username).first():
             flash('Username already exists', 'error')
+            return render_template('signup.html')
+        if User.query.filter_by(email=email).first():
+            flash('Email already registered', 'error')
             return render_template('signup.html')
         if len(password) < 4:
             flash('Password must be at least 4 characters', 'error')
             return render_template('signup.html')
+        if password != confirm:
+            flash('Passwords do not match', 'error')
+            return render_template('signup.html')
+
         hashed = bcrypt.generate_password_hash(password).decode('utf-8')
-        user = User(username=username, password_hash=hashed)
+        user = User(username=username, email=email, password_hash=hashed)
         db.session.add(user)
         db.session.commit()
         login_user(user)
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
     return render_template('signup.html')
+
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    if request.method == 'POST':
+        email = request.form.get('email')
+        user = User.query.filter_by(email=email).first()
+        if user:
+            token = secrets.token_urlsafe(32)
+            user.reset_token = token
+            user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+            db.session.commit()
+            reset_url = url_for('reset_password', token=token, _external=True)
+            flash(f'Reset link generated: <a href="{reset_url}">{reset_url}</a><br>In production this would be emailed. Click the link to reset your password.', 'success')
+        else:
+            flash('If that email is registered, a reset link has been sent.', 'success')
+        return redirect(url_for('login'))
+    return render_template('forgot_password.html')
+
+@app.route('/reset_password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    user = User.query.filter_by(reset_token=token).first()
+    if not user or not user.reset_token_expires or user.reset_token_expires < datetime.utcnow():
+        flash('Invalid or expired reset link.', 'error')
+        return redirect(url_for('forgot_password'))
+    if request.method == 'POST':
+        password = request.form.get('password')
+        confirm = request.form.get('confirm_password')
+        if len(password) < 4:
+            flash('Password must be at least 4 characters.', 'error')
+            return render_template('reset_password.html', token=token)
+        if password != confirm:
+            flash('Passwords do not match.', 'error')
+            return render_template('reset_password.html', token=token)
+        user.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        user.reset_token = None
+        user.reset_token_expires = None
+        db.session.commit()
+        flash('Password reset successfully. Sign in with your new password.', 'success')
+        return redirect(url_for('login'))
+    return render_template('reset_password.html', token=token)
 
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for('login'))
+    return redirect(url_for('home'))
 
 @app.route('/dashboard')
 @login_required
@@ -128,7 +207,7 @@ def dashboard():
 @login_required
 def admin_panel():
     if not current_user.is_admin:
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
     users = User.query.all()
     return render_template('admin.html', users=users)
 
@@ -136,7 +215,7 @@ def admin_panel():
 @login_required
 def admin_user_detail(user_id):
     if not current_user.is_admin:
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
     user = db.session.get(User, user_id)
     if not user:
         flash('User not found', 'error')
@@ -148,7 +227,7 @@ def admin_user_detail(user_id):
 @login_required
 def admin_delete_user(user_id):
     if not current_user.is_admin:
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
     user = db.session.get(User, user_id)
     if user and user.username != 'admin':
         db.session.delete(user)
@@ -159,7 +238,7 @@ def admin_delete_user(user_id):
 @login_required
 def admin_train():
     if not current_user.is_admin:
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
     return render_template('admin_train.html')
 
 @app.route('/admin/train/stats')
@@ -255,12 +334,16 @@ def admin_train_retrain():
                 return img, label
 
         transform = transforms.Compose([
+            transforms.RandomAffine(degrees=10, translate=(0.1, 0.1), scale=(0.9, 1.1)),
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))
         ])
 
         custom_set = TrainingDataset(TRAINING_DIR, transform)
-        test_set = datasets.MNIST('data', train=False, download=True, transform=transform)
+        test_set = datasets.MNIST('data', train=False, download=True, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ]))
 
         dvc = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         m = DigitCNN().to(dvc)
@@ -270,12 +353,9 @@ def admin_train_retrain():
         datasets_to_combine = []
         if len(custom_set) > 0:
             datasets_to_combine.append(custom_set)
+
         mnist_full = datasets.MNIST('data', train=True, download=True, transform=transform)
-        indices = list(range(len(mnist_full)))
-        random.shuffle(indices)
-        subset_indices = indices[:5000]
-        mnist_subset = torch.utils.data.Subset(mnist_full, subset_indices)
-        datasets_to_combine.append(mnist_subset)
+        datasets_to_combine.append(mnist_full)
 
         if len(datasets_to_combine) > 1:
             combined = torch.utils.data.ConcatDataset(datasets_to_combine)
@@ -286,7 +366,9 @@ def admin_train_retrain():
         test_loader = DataLoader(test_set, batch_size=1000)
 
         optimizer = optim.Adam(m.parameters(), lr=0.001)
-        for epoch in range(1, 3):
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.5)
+
+        for epoch in range(1, 8):
             m.train()
             for data, target in train_loader:
                 data, target = data.to(dvc), target.to(dvc)
@@ -295,6 +377,7 @@ def admin_train_retrain():
                 loss = F.nll_loss(output, target)
                 loss.backward()
                 optimizer.step()
+            scheduler.step()
 
         m.eval()
         correct = 0
@@ -310,7 +393,7 @@ def admin_train_retrain():
         acc = 100.0 * correct / total
         torch.save(m.state_dict(), 'digit_model.pth')
 
-        dummy = torch.randn(1, 1, 28, 28)
+        dummy = torch.randn(1, 1, 28, 28).to(dvc)
         torch.onnx.export(m, dummy, 'digit_model.onnx',
             input_names=['input'], output_names=['output'], opset_version=18)
 
@@ -320,11 +403,12 @@ def admin_train_retrain():
         return jsonify({
             'success': True,
             'accuracy': round(acc, 2),
-            'mnist_samples': 5000,
-            'custom_samples': len(custom_set)
+            'mnist_samples': len(mnist_full),
+            'custom_samples': len(custom_set),
+            'epochs': 7
         })
     except ImportError:
-        return jsonify({'success': False, 'error': 'PyTorch is not installed. Retrain locally and push the updated model.'}), 200
+        return jsonify({'success': False, 'error': 'PyTorch is not installed. Install with: pip install torch torchvision'}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -415,7 +499,8 @@ def predict():
             digit_label=target_digit,
             predicted_digit=pred_digit,
             confidence=conf,
-            correct=correct
+            correct=correct,
+            image_data=data.get('image', '')[:500] if data.get('image') else None
         )
         db.session.add(record)
         db.session.commit()
@@ -439,6 +524,62 @@ def predict():
     except Exception as e:
         print(f'PREDICT ERROR: {e}')
         return jsonify({'error': str(e), 'correct': False, 'message': 'Something went wrong. Keep practicing!'}), 200
+
+@app.route('/report_record/<int:record_id>', methods=['POST'])
+@login_required
+def report_record(record_id):
+    record = db.session.get(Record, record_id)
+    if record and record.user_id == current_user.id:
+        record.reported = True
+        db.session.commit()
+        flash('Reported to admin for review. The correct assessment will help improve the model.', 'success')
+    return redirect(url_for('dashboard'))
+
+@app.route('/admin/corrections')
+@login_required
+def admin_corrections():
+    if not current_user.is_admin:
+        return redirect(url_for('home'))
+    reported = Record.query.filter_by(reported=True).order_by(Record.created_at.desc()).all()
+    low_confidence = Record.query.filter(Record.confidence < 0.6).order_by(Record.created_at.desc()).limit(50).all()
+    return render_template('admin_corrections.html', reported=reported, low_confidence=low_confidence)
+
+@app.route('/admin/correction/<int:record_id>', methods=['POST'])
+@login_required
+def admin_submit_correction(record_id):
+    if not current_user.is_admin:
+        return redirect(url_for('home'))
+    record = db.session.get(Record, record_id)
+    if not record:
+        flash('Record not found', 'error')
+        return redirect(url_for('admin_corrections'))
+    actual_digit = request.form.get('actual_digit')
+    if actual_digit is None or actual_digit == '':
+        flash('Please provide the correct digit', 'error')
+        return redirect(url_for('admin_corrections'))
+    actual_digit = int(actual_digit)
+    if actual_digit < 0 or actual_digit > 9:
+        flash('Invalid digit', 'error')
+        return redirect(url_for('admin_corrections'))
+    record.admin_corrected_label = actual_digit
+    record.admin_reviewed = True
+    record.correct = (actual_digit == record.digit_label)
+    db.session.commit()
+    image_data = request.form.get('save_training')
+    if image_data:
+        dir_path = os.path.join(TRAINING_DIR, str(actual_digit))
+        os.makedirs(dir_path, exist_ok=True)
+        existing = len([f for f in os.listdir(dir_path) if f.endswith('.png')])
+        try:
+            img_data = base64.b64decode(image_data.split(',')[1])
+            img = Image.open(io.BytesIO(img_data)).convert('L')
+            fname = os.path.join(dir_path, f'sample_{existing+1:04d}.png')
+            img.save(fname)
+        except:
+            pass
+    flash(f'Fixed: student was asked to write {record.digit_label}, model said {record.predicted_digit}, you confirmed they wrote {actual_digit}. Accuracy updated.', 'success')
+    next_url = request.form.get('next') or url_for('admin_corrections')
+    return redirect(next_url)
 
 @app.route('/delete_record/<int:record_id>', methods=['POST'])
 @login_required
