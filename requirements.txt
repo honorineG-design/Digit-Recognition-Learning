@@ -5,7 +5,6 @@ Flask-Bcrypt
 Pillow
 numpy
 gunicorn
-psycopg2-binary
 onnxruntime
 torch
 torchvision
